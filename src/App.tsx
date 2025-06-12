@@ -21,6 +21,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/summary" element={<SummaryResults />} />
+          <Route path="/summary/:standupId" element={<SummaryResults />} />
           <Route path="/history" element={<History />} />
           <Route path="/team/:teamName" element={<TeamHistory />} />
           <Route path="*" element={<NotFound />} />

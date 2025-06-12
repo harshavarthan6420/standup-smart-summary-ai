@@ -1,13 +1,22 @@
 
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, Users, Code, TestTube, Monitor, Settings, Home } from "lucide-react";
 
+interface Team {
+  name: string;
+  path: string;
+  meetingCount: number;
+}
+
 const History = () => {
   const navigate = useNavigate();
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const teams = [
+  const teamConfig = [
     {
       name: "Development",
       icon: Code,
@@ -46,9 +55,49 @@ const History = () => {
     }
   ];
 
-  const handleTeamClick = (teamName: string) => {
-    navigate(`/team/${teamName.toLowerCase().replace(" ", "-")}`);
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/teams');
+        if (response.ok) {
+          const data = await response.json();
+          setTeams(data);
+        }
+      } catch (error) {
+        console.error('Error fetching teams:', error);
+        // Fallback to default teams if backend is not available
+        setTeams([
+          { name: "Development", path: "development", meetingCount: 0 },
+          { name: "QA Automation", path: "qa-automation", meetingCount: 0 },
+          { name: "UI", path: "ui", meetingCount: 0 },
+          { name: "DevOps", path: "devops", meetingCount: 0 }
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTeams();
+  }, []);
+
+  const handleTeamClick = (teamPath: string) => {
+    navigate(`/team/${teamPath}`);
   };
+
+  const getTeamConfig = (teamName: string) => {
+    return teamConfig.find(config => config.name === teamName) || teamConfig[0];
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading teams...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -86,25 +135,29 @@ const History = () => {
         {/* Team Selection Grid */}
         <div className="grid md:grid-cols-2 gap-6">
           {teams.map((team) => {
-            const IconComponent = team.icon;
+            const config = getTeamConfig(team.name);
+            const IconComponent = config.icon;
             return (
               <Card 
                 key={team.name}
-                className={`${team.borderColor} ${team.bgColor} border-2 hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105`}
-                onClick={() => handleTeamClick(team.name)}
+                className={`${config.borderColor} ${config.bgColor} border-2 hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105`}
+                onClick={() => handleTeamClick(team.path)}
               >
                 <CardHeader className="text-center pb-6">
-                  <div className={`w-16 h-16 ${team.color} rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg`}>
+                  <div className={`w-16 h-16 ${config.color} rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg`}>
                     <IconComponent className="w-8 h-8 text-white" />
                   </div>
                   <CardTitle className="text-2xl text-slate-900">{team.name}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-center">
-                  <p className="text-slate-600 mb-6 leading-relaxed">
-                    {team.description}
+                  <p className="text-slate-600 mb-4 leading-relaxed">
+                    {config.description}
+                  </p>
+                  <p className="text-sm text-slate-500 mb-6">
+                    {team.meetingCount} meetings recorded
                   </p>
                   <Button 
-                    className={`${team.color} ${team.hoverColor} text-white w-full shadow-md`}
+                    className={`${config.color} ${config.hoverColor} text-white w-full shadow-md`}
                   >
                     <Users className="w-4 h-4 mr-2" />
                     View Team History

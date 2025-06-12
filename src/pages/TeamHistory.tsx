@@ -1,70 +1,83 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { FileText, Home, Search, Calendar, ArrowRight, AlertTriangle, ChevronDown, ChevronUp, Code, TestTube, Monitor, Settings } from "lucide-react";
+import { FileText, Home, Search, Calendar, ArrowRight, AlertTriangle, ChevronDown, ChevronUp, Code, TestTube, Monitor, Settings, Eye } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+interface StandupSummary {
+  speaker: string;
+  initial: string;
+  time: string;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  rawContent: string;
+}
+
+interface StandupMeeting {
+  id: string;
+  date: string;
+  isToday?: boolean;
+  team: string;
+  summary: StandupSummary[];
+}
 
 const TeamHistory = () => {
   const { teamName } = useParams();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedMeetings, setExpandedMeetings] = useState<string[]>([]);
+  const [meetings, setMeetings] = useState<StandupMeeting[]>([]);
+  const [teams, setTeams] = useState<Array<{name: string, path: string, icon: any}>>([]);
+  const [loading, setLoading] = useState(true);
 
   const formattedTeamName = teamName?.replace("-", " ").replace(/\b\w/g, l => l.toUpperCase()) || "Development";
 
-  const teams = [
+  const teamIcons = [
     { name: "Development", icon: Code, path: "development" },
     { name: "QA Automation", icon: TestTube, path: "qa-automation" }, 
     { name: "UI", icon: Monitor, path: "ui" },
     { name: "DevOps", icon: Settings, path: "devops" }
   ];
 
-  // Sample data - today's meeting is featured prominently
-  const todaysMeeting = {
-    id: "today",
-    date: "12/06/2025",
-    isToday: true,
-    summary: [
-      {
-        speaker: "Alice Johnson",
-        initial: "A",
-        time: "09:00-09:03",
-        yesterday: "Completed the user authentication module and fixed the critical login bug",
-        today: "Will work on implementing the password reset functionality",
-        blockers: "No blockers at the moment."
-      },
-      {
-        speaker: "Bob Chen", 
-        initial: "B",
-        time: "09:03-09:06",
-        yesterday: "Finished database migrations for the new user profile schema",
-        today: "Planning to develop the frontend components for the enhanced profile page",
-        blockers: "Blocked on getting admin access to the staging environment."
-      }
-    ]
-  };
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch team history
+        if (teamName) {
+          const historyResponse = await fetch(`http://localhost:3001/api/teams/${teamName}/history`);
+          if (historyResponse.ok) {
+            const historyData = await historyResponse.json();
+            setMeetings(historyData);
+          }
+        }
 
-  const previousMeetings = [
-    { 
-      id: "prev1",
-      date: "11/06/2025",
-      summary: "Team discussed sprint planning and reviewed backlog items. Focus on user authentication improvements."
-    },
-    {
-      id: "prev2", 
-      date: "10/06/2025",
-      summary: "Code review session and deployment preparation. Addressed security concerns in the payment module."
-    },
-    {
-      id: "prev3",
-      date: "09/06/2025", 
-      summary: "Feature development progress update. New dashboard components completed and ready for testing."
-    }
-  ];
+        // Fetch all teams
+        const teamsResponse = await fetch('http://localhost:3001/api/teams');
+        if (teamsResponse.ok) {
+          const teamsData = await teamsResponse.json();
+          const teamsWithIcons = teamsData.map((team: any) => {
+            const iconData = teamIcons.find(t => t.path === team.path);
+            return {
+              ...team,
+              icon: iconData?.icon || Code
+            };
+          });
+          setTeams(teamsWithIcons);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [teamName]);
 
   const toggleMeetingExpansion = (meetingId: string) => {
     setExpandedMeetings(prev => 
@@ -74,17 +87,35 @@ const TeamHistory = () => {
     );
   };
 
-  const filteredMeetings = previousMeetings.filter(meeting =>
+  const filteredMeetings = meetings.filter(meeting =>
     meeting.date.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    meeting.summary.toLowerCase().includes(searchTerm.toLowerCase())
+    meeting.summary.some(s => s.speaker.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const getCurrentTeamIcon = () => {
-    const team = teams.find(t => t.path === teamName);
+    const team = teamIcons.find(t => t.path === teamName);
     return team?.icon || Code;
   };
 
   const CurrentTeamIcon = getCurrentTeamIcon();
+
+  const todaysMeeting = filteredMeetings.find(m => m.isToday);
+  const previousMeetings = filteredMeetings.filter(m => !m.isToday);
+
+  const viewDetailedSummary = (meeting: StandupMeeting) => {
+    navigate(`/summary/${meeting.id}`, { state: { standupData: meeting } });
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading team history...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -123,101 +154,148 @@ const TeamHistory = () => {
               </div>
             </div>
             <Badge className="bg-blue-600 text-white px-4 py-2">
-              {filteredMeetings.length + 1} meetings
+              {filteredMeetings.length} meetings
             </Badge>
           </div>
 
           {/* Today's Scrum - Featured */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">Today's Scrum</h2>
-            <Card className="border-blue-200 bg-blue-50 shadow-xl">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-2xl text-blue-900">{todaysMeeting.date}</CardTitle>
-                  <Badge className="bg-blue-600 text-white">Latest</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {todaysMeeting.summary.map((item, index) => (
-                    <div key={index} className="bg-white rounded-lg p-4 border border-blue-200">
-                      <div className="flex items-center space-x-3 mb-4">
-                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                          {item.initial}
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-slate-900">{item.speaker}</h4>
-                          <p className="text-sm text-slate-500">{item.time}</p>
-                        </div>
-                      </div>
-                      <div className="grid md:grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-3 h-3 text-slate-600" />
-                            <span className="text-xs font-medium text-slate-700">Yesterday</span>
-                          </div>
-                          <p className="text-sm text-slate-700">{item.yesterday}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-1">
-                            <ArrowRight className="w-3 h-3 text-blue-600" />
-                            <span className="text-xs font-medium text-slate-700">Today</span>
-                          </div>
-                          <p className="text-sm text-slate-700">{item.today}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-1">
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            <span className="text-xs font-medium text-slate-700">Blockers</span>
-                          </div>
-                          <p className={`text-sm ${item.blockers.includes("No blockers") ? "text-green-700" : "text-red-700"}`}>
-                            {item.blockers}
-                          </p>
-                        </div>
-                      </div>
+          {todaysMeeting && (
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-900 mb-4">Today's Scrum</h2>
+              <Card className="border-blue-200 bg-blue-50 shadow-xl">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-2xl text-blue-900">{todaysMeeting.date}</CardTitle>
+                    <div className="flex items-center space-x-2">
+                      <Badge className="bg-blue-600 text-white">Latest</Badge>
+                      <Button 
+                        onClick={() => viewDetailedSummary(todaysMeeting)}
+                        className="bg-blue-600 hover:bg-blue-700"
+                        size="sm"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Details
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    {todaysMeeting.summary.map((item, index) => (
+                      <div key={index} className="bg-white rounded-lg p-4 border border-blue-200">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            {item.initial}
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-slate-900">{item.speaker}</h4>
+                            <p className="text-sm text-slate-500">{item.time}</p>
+                          </div>
+                        </div>
+                        <div className="grid md:grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1">
+                              <Calendar className="w-3 h-3 text-slate-600" />
+                              <span className="text-xs font-medium text-slate-700">Yesterday</span>
+                            </div>
+                            <p className="text-sm text-slate-700">{item.yesterday}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1">
+                              <ArrowRight className="w-3 h-3 text-blue-600" />
+                              <span className="text-xs font-medium text-slate-700">Today</span>
+                            </div>
+                            <p className="text-sm text-slate-700">{item.today}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1">
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              <span className="text-xs font-medium text-slate-700">Blockers</span>
+                            </div>
+                            <p className={`text-sm ${item.blockers.includes("No blockers") ? "text-green-700" : "text-red-700"}`}>
+                              {item.blockers}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Previous Scrums */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">Previous Scrums</h2>
-            <div className="space-y-4">
-              {filteredMeetings.map((meeting) => (
-                <Collapsible 
-                  key={meeting.id}
-                  open={expandedMeetings.includes(meeting.id)}
-                  onOpenChange={() => toggleMeetingExpansion(meeting.id)}
-                >
-                  <Card className="border-slate-200 hover:border-blue-300 transition-colors">
-                    <CollapsibleTrigger asChild>
-                      <CardHeader className="cursor-pointer hover:bg-slate-50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                            <CardTitle className="text-lg text-slate-900">{meeting.date}</CardTitle>
+          {previousMeetings.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-900 mb-4">Previous Scrums</h2>
+              <div className="space-y-4">
+                {previousMeetings.map((meeting) => (
+                  <Collapsible 
+                    key={meeting.id}
+                    open={expandedMeetings.includes(meeting.id)}
+                    onOpenChange={() => toggleMeetingExpansion(meeting.id)}
+                  >
+                    <Card className="border-slate-200 hover:border-blue-300 transition-colors">
+                      <CollapsibleTrigger asChild>
+                        <CardHeader className="cursor-pointer hover:bg-slate-50">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+                              <CardTitle className="text-lg text-slate-900">{meeting.date}</CardTitle>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  viewDetailedSummary(meeting);
+                                }}
+                                variant="outline"
+                                size="sm"
+                                className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Details
+                              </Button>
+                              {expandedMeetings.includes(meeting.id) ? (
+                                <ChevronUp className="w-5 h-5 text-slate-500" />
+                              ) : (
+                                <ChevronDown className="w-5 h-5 text-slate-500" />
+                              )}
+                            </div>
                           </div>
-                          {expandedMeetings.includes(meeting.id) ? (
-                            <ChevronUp className="w-5 h-5 text-slate-500" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-slate-500" />
-                          )}
-                        </div>
-                      </CardHeader>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <CardContent>
-                        <p className="text-slate-700">{meeting.summary}</p>
-                      </CardContent>
-                    </CollapsibleContent>
-                  </Card>
-                </Collapsible>
-              ))}
+                        </CardHeader>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {meeting.summary.map((item, index) => (
+                              <div key={index} className="border-l-4 border-blue-200 pl-4">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-xs">
+                                    {item.initial}
+                                  </div>
+                                  <span className="font-medium text-slate-900">{item.speaker}</span>
+                                  <span className="text-sm text-slate-500">({item.time})</span>
+                                </div>
+                                <p className="text-sm text-slate-700">{item.yesterday}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </CollapsibleContent>
+                    </Card>
+                  </Collapsible>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {filteredMeetings.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-slate-500">No meetings found for this team.</p>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}

@@ -1,48 +1,62 @@
 
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, FileText, Calendar, ArrowRight, AlertTriangle, Home } from "lucide-react";
+
+interface StandupSummary {
+  speaker: string;
+  initial: string;
+  time: string;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  rawContent: string;
+}
+
+interface StandupData {
+  id: string;
+  date: string;
+  team: string;
+  summary: StandupSummary[];
+}
 
 const SummaryResults = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const team = location.state?.team || "Development";
+  const { standupId } = useParams();
+  const [standupData, setStandupData] = useState<StandupData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Sample data based on the wireframe
-  const summaryData = [
-    {
-      speaker: "Alice Johnson",
-      initial: "A",
-      time: "09:00-09:03",
-      yesterday: "Completed the user authentication module and fixed the critical login bug that was affecting mobile users.",
-      today: "Will work on implementing the password reset functionality and integrate it with our email service provider.",
-      blockers: "No blockers at the moment.",
-      rawContent: "Yesterday I finished the auth module and fixed that mobile login issue. Today I'm working on password reset integration. No blockers right now."
-    },
-    {
-      speaker: "Bob Chen",
-      initial: "B", 
-      time: "09:03-09:06",
-      yesterday: "Finished database migrations for the new user profile schema and updated all related API endpoints.",
-      today: "Planning to develop the frontend components for the enhanced profile page and conduct thorough testing.",
-      blockers: "Blocked on getting admin access to the staging environment. Need IT approval for deployment permissions.",
-      rawContent: "Got the database migrations done for user profiles, updated APIs. Working on frontend components today. Still blocked on staging access - need IT approval."
-    },
-    {
-      speaker: "Carol Martinez",
-      initial: "C",
-      time: "09:06-09:09", 
-      yesterday: "Reviewed and merged 5 pull requests, deployed version 2.1.3 to staging environment successfully.",
-      today: "Will focus on building the new monitoring dashboard and setting up automated alerts for production.",
-      blockers: "No blockers. All systems are running smoothly.",
-      rawContent: "Yesterday reviewed 5 PRs, deployed v2.1.3 to staging. Today working on monitoring dashboard and production alerts. No issues."
-    }
-  ];
+  useEffect(() => {
+    const fetchStandupData = async () => {
+      try {
+        if (standupId) {
+          const response = await fetch(`http://localhost:3001/api/standups/${standupId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setStandupData(data);
+          }
+        } else if (location.state?.standupData) {
+          setStandupData(location.state.standupData);
+        }
+      } catch (error) {
+        console.error('Error fetching standup data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStandupData();
+  }, [standupId, location.state]);
 
   const handleDownloadCSV = () => {
-    const csvData = summaryData.map(item => ({
+    if (!standupData) return;
+    
+    const csvData = standupData.summary.map(item => ({
       Speaker: item.speaker,
       Time: item.time,
       Yesterday: item.yesterday,
@@ -59,14 +73,37 @@ const SummaryResults = () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${team}_standup_summary.csv`;
+    a.download = `${standupData.team}_standup_summary_${standupData.date.replace(/\//g, '-')}.csv`;
     a.click();
   };
 
   const handleDownloadPDF = () => {
-    // Simulate PDF download
     alert('PDF download would be implemented with a PDF generation library');
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading standup summary...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!standupData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-600 mb-4">Standup summary not found</p>
+          <Button onClick={() => navigate("/")} className="bg-blue-600 hover:bg-blue-700">
+            Return Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -90,7 +127,7 @@ const SummaryResults = () => {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Title Section */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-slate-900 mb-2">
@@ -101,69 +138,82 @@ const SummaryResults = () => {
           </p>
         </div>
 
-        {/* Team Badge */}
-        <div className="flex justify-center mb-8">
+        {/* Team Badge and Date */}
+        <div className="flex justify-center items-center gap-4 mb-8">
           <Badge className="bg-blue-600 text-white px-4 py-2 text-lg">
-            {team} Team
+            {standupData.team} Team
+          </Badge>
+          <Badge variant="outline" className="border-slate-300 px-4 py-2 text-lg">
+            {standupData.date}
           </Badge>
         </div>
 
-        {/* Summary Cards */}
-        <div className="space-y-6 mb-8">
-          {summaryData.map((item, index) => (
-            <Card key={index} className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-                      {item.initial}
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-slate-900">{item.speaker}</CardTitle>
-                      <p className="text-sm text-slate-500">{item.time}</p>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-3 gap-6">
-                  {/* Yesterday */}
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="w-4 h-4 text-slate-600" />
-                      <h4 className="font-semibold text-slate-900">Yesterday</h4>
-                    </div>
-                    <p className="text-sm text-slate-700 leading-relaxed">{item.yesterday}</p>
-                  </div>
-
-                  {/* Today */}
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <ArrowRight className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-semibold text-slate-900">Today</h4>
-                    </div>
-                    <p className="text-sm text-slate-700 leading-relaxed">{item.today}</p>
-                  </div>
-
-                  {/* Blockers */}
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-semibold text-slate-900">Blockers</h4>
-                    </div>
-                    <p className={`text-sm leading-relaxed ${
-                      item.blockers.includes("No blockers") || item.blockers.includes("None") 
-                        ? "text-green-700" 
-                        : "text-red-700"
-                    }`}>
-                      {item.blockers}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Summary Table */}
+        <Card className="border-slate-200 shadow-lg mb-8">
+          <CardHeader>
+            <CardTitle className="text-xl text-slate-900">Meeting Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="font-semibold text-slate-900">Speaker</TableHead>
+                    <TableHead className="font-semibold text-slate-900">Time</TableHead>
+                    <TableHead className="font-semibold text-slate-900">
+                      <div className="flex items-center space-x-2">
+                        <Calendar className="w-4 h-4" />
+                        <span>Yesterday</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="font-semibold text-slate-900">
+                      <div className="flex items-center space-x-2">
+                        <ArrowRight className="w-4 h-4" />
+                        <span>Today</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="font-semibold text-slate-900">
+                      <div className="flex items-center space-x-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>Blockers</span>
+                      </div>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {standupData.summary.map((item, index) => (
+                    <TableRow key={index} className="hover:bg-slate-50">
+                      <TableCell>
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            {item.initial}
+                          </div>
+                          <span className="font-medium text-slate-900">{item.speaker}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-600">{item.time}</TableCell>
+                      <TableCell className="text-sm text-slate-700 max-w-xs">
+                        <p className="leading-relaxed">{item.yesterday}</p>
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-700 max-w-xs">
+                        <p className="leading-relaxed">{item.today}</p>
+                      </TableCell>
+                      <TableCell className="text-sm max-w-xs">
+                        <p className={`leading-relaxed ${
+                          item.blockers.includes("No blockers") || item.blockers.includes("None") 
+                            ? "text-green-700" 
+                            : "text-red-700"
+                        }`}>
+                          {item.blockers}
+                        </p>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Action Buttons */}
         <div className="flex flex-wrap justify-center gap-4 mb-8">
