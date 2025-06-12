@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,10 @@ const Index = () => {
   const [transcriptText, setTranscriptText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState("");
+  const [dragOver, setDragOver] = useState({ audio: false, transcript: false });
+  
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const transcriptInputRef = useRef<HTMLInputElement>(null);
 
   const teams = ["development", "qa-automation", "ui", "devops"];
   const teamDisplayNames = {
@@ -23,40 +27,80 @@ const Index = () => {
     "devops": "DevOps"
   };
 
+  const handleDragOver = (e: React.DragEvent, type: "audio" | "transcript") => {
+    e.preventDefault();
+    setDragOver(prev => ({ ...prev, [type]: true }));
+  };
+
+  const handleDragLeave = (e: React.DragEvent, type: "audio" | "transcript") => {
+    e.preventDefault();
+    setDragOver(prev => ({ ...prev, [type]: false }));
+  };
+
+  const handleDrop = (e: React.DragEvent, type: "audio" | "transcript") => {
+    e.preventDefault();
+    setDragOver(prev => ({ ...prev, [type]: false }));
+    
+    if (!selectedTeam) {
+      toast.error("Please select a team before uploading");
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const file = files[0];
+    
+    if (type === "audio") {
+      const audioFormats = ['.wav', '.mp3', '.m4a', '.aac', '.flac'];
+      const isValidAudio = audioFormats.some(format => file.name.toLowerCase().endsWith(format));
+      
+      if (!isValidAudio) {
+        toast.error("Please upload a valid audio file (.wav, .mp3, .m4a, .aac, .flac)");
+        return;
+      }
+      processAudioFile(file);
+    } else {
+      const textFormats = ['.txt', '.md'];
+      const isValidText = textFormats.some(format => file.name.toLowerCase().endsWith(format));
+      
+      if (!isValidText) {
+        toast.error("Please upload a valid text file (.txt, .md)");
+        return;
+      }
+      processTranscriptFile(file);
+    }
+  };
+
   const handleFileUpload = (type: "audio" | "transcript") => {
     if (!selectedTeam) {
       toast.error("Please select a team before uploading");
       return;
     }
 
-    const input = document.createElement("input");
-    input.type = "file";
-    
     if (type === "audio") {
-      input.accept = ".wav,.mp3,.m4a,.aac,.flac";
+      audioInputRef.current?.click();
     } else {
-      input.accept = ".txt,.md";
+      transcriptInputRef.current?.click();
     }
+  };
 
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        if (type === "audio") {
-          processAudioFile(file);
-        } else {
-          processTranscriptFile(file);
-        }
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>, type: "audio" | "transcript") => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (type === "audio") {
+        processAudioFile(file);
+      } else {
+        processTranscriptFile(file);
       }
-    };
-    
-    input.click();
+    }
   };
 
   const processAudioFile = async (file: File) => {
     setIsProcessing(true);
     
     try {
-      setProcessingStep("Transcribing audio...");
+      setProcessingStep("Transcribing audio with open source models...");
       
       const formData = new FormData();
       formData.append('audio', file);
@@ -68,16 +112,18 @@ const Index = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to process audio file');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process audio file');
       }
       
       const result = await response.json();
       setIsProcessing(false);
+      toast.success("Audio processed successfully!");
       navigate(`/summary/${result.id}`);
       
     } catch (error) {
       console.error('Error processing audio:', error);
-      toast.error("Failed to process audio file. Please check if the backend server is running.");
+      toast.error(error.message || "Failed to process audio file. Please check if the backend server is running.");
       setIsProcessing(false);
     }
   };
@@ -99,7 +145,7 @@ const Index = () => {
     setIsProcessing(true);
     
     try {
-      setProcessingStep("Segmenting speakers...");
+      setProcessingStep("Segmenting speakers with open source models...");
       
       const response = await fetch('http://localhost:3001/api/process-standup', {
         method: 'POST',
@@ -113,16 +159,18 @@ const Index = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to process transcript');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process transcript');
       }
       
       const result = await response.json();
       setIsProcessing(false);
+      toast.success("Transcript processed successfully!");
       navigate(`/summary/${result.id}`);
       
     } catch (error) {
       console.error('Error processing transcript:', error);
-      toast.error("Failed to process transcript. Please check if the backend server is running and OpenAI API key is configured.");
+      toast.error(error.message || "Failed to process transcript. Please check if the backend server is running.");
       setIsProcessing(false);
     }
   };
@@ -152,6 +200,22 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Hidden file inputs */}
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept=".wav,.mp3,.m4a,.aac,.flac"
+        onChange={(e) => handleFileInputChange(e, "audio")}
+        className="hidden"
+      />
+      <input
+        ref={transcriptInputRef}
+        type="file"
+        accept=".txt,.md"
+        onChange={(e) => handleFileInputChange(e, "transcript")}
+        className="hidden"
+      />
+
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -213,15 +277,29 @@ const Index = () => {
             {/* Upload Options */}
             <div className="grid md:grid-cols-2 gap-6">
               {/* Audio Upload */}
-              <Card className="border-dashed border-2 border-slate-300 hover:border-blue-400 transition-colors">
+              <Card 
+                className={`border-dashed border-2 transition-colors cursor-pointer ${
+                  dragOver.audio 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : 'border-slate-300 hover:border-blue-400'
+                }`}
+                onDragOver={(e) => handleDragOver(e, "audio")}
+                onDragLeave={(e) => handleDragLeave(e, "audio")}
+                onDrop={(e) => handleDrop(e, "audio")}
+                onClick={() => handleFileUpload("audio")}
+              >
                 <CardContent className="p-6 text-center">
                   <Mic className="w-12 h-12 text-blue-600 mx-auto mb-4" />
                   <h3 className="font-semibold text-slate-900 mb-2">Upload Audio</h3>
                   <p className="text-sm text-slate-600 mb-4">
+                    Drag & drop or click to upload<br />
                     .wav, .mp3, .m4a, .aac, .flac
                   </p>
                   <Button 
-                    onClick={() => handleFileUpload("audio")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleFileUpload("audio");
+                    }}
                     className="bg-blue-600 hover:bg-blue-700 w-full"
                     disabled={isProcessing}
                   >
@@ -232,15 +310,29 @@ const Index = () => {
               </Card>
 
               {/* Transcript Upload */}
-              <Card className="border-dashed border-2 border-slate-300 hover:border-blue-400 transition-colors">
+              <Card 
+                className={`border-dashed border-2 transition-colors cursor-pointer ${
+                  dragOver.transcript 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : 'border-slate-300 hover:border-blue-400'
+                }`}
+                onDragOver={(e) => handleDragOver(e, "transcript")}
+                onDragLeave={(e) => handleDragLeave(e, "transcript")}
+                onDrop={(e) => handleDrop(e, "transcript")}
+                onClick={() => handleFileUpload("transcript")}
+              >
                 <CardContent className="p-6 text-center">
                   <FileText className="w-12 h-12 text-blue-600 mx-auto mb-4" />
                   <h3 className="font-semibold text-slate-900 mb-2">Upload Transcript</h3>
                   <p className="text-sm text-slate-600 mb-4">
+                    Drag & drop or click to upload<br />
                     .txt, .md files
                   </p>
                   <Button 
-                    onClick={() => handleFileUpload("transcript")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleFileUpload("transcript");
+                    }}
                     variant="outline" 
                     className="border-blue-600 text-blue-600 hover:bg-blue-50 w-full"
                     disabled={isProcessing}
@@ -303,7 +395,7 @@ const Index = () => {
             <CardContent className="p-6 text-center">
               <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-blue-800 font-medium">{processingStep}</p>
-              <p className="text-sm text-blue-600 mt-2">This may take a few minutes for audio files...</p>
+              <p className="text-sm text-blue-600 mt-2">Using open source models for processing...</p>
             </CardContent>
           </Card>
         )}
@@ -317,7 +409,7 @@ const Index = () => {
               </div>
               <h3 className="font-semibold text-slate-900 mb-2">Auto-Transcription</h3>
               <p className="text-sm text-slate-600">
-                Powered by OpenAI Whisper for accurate speech-to-text conversion
+                Powered by open source Whisper models for accurate speech-to-text conversion
               </p>
             </CardContent>
           </Card>
@@ -329,7 +421,7 @@ const Index = () => {
               </div>
               <h3 className="font-semibold text-slate-900 mb-2">Speaker Identification</h3>
               <p className="text-sm text-slate-600">
-                AI-powered speaker diarization to separate individual contributions
+                Open source speaker diarization to separate individual contributions
               </p>
             </CardContent>
           </Card>
@@ -341,7 +433,7 @@ const Index = () => {
               </div>
               <h3 className="font-semibold text-slate-900 mb-2">Smart Summarization</h3>
               <p className="text-sm text-slate-600">
-                IBM watsonx.ai extracts Yesterday, Today, and Blockers for each speaker
+                Open source language models extract Yesterday, Today, and Blockers for each speaker
               </p>
             </CardContent>
           </Card>
@@ -352,7 +444,7 @@ const Index = () => {
       <footer className="bg-white border-t border-slate-200 mt-16">
         <div className="max-w-7xl mx-auto px-6 py-8 text-center">
           <p className="text-sm text-slate-500">
-            Powered by IBM watsonx.ai & OpenAI Whisper
+            Powered by Open Source AI Models
           </p>
           <p className="text-sm text-slate-500 mt-2">
             Your files and transcripts are processed in-memory only and are not stored or shared.
