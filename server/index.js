@@ -2,6 +2,9 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 const port = 3001;
 
@@ -11,6 +14,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || 'your-openai-api-key-here'
+});
 
 // In-memory storage for standup data
 let standupData = {
@@ -49,82 +57,159 @@ let standupData = {
           rawContent: "Yesterday reviewed 5 PRs, deployed v2.1.3 to staging. Today working on monitoring dashboard and production alerts. No issues."
         }
       ]
-    },
-    {
-      id: 'dev-20250611',
-      date: '11/06/2025',
-      team: 'Development',
-      summary: [
-        {
-          speaker: "Alice Johnson",
-          initial: "A",
-          time: "09:00-09:03",
-          yesterday: "Worked on API documentation and code reviews.",
-          today: "Starting user authentication module implementation.",
-          blockers: "None",
-          rawContent: "Yesterday API docs and reviews. Today starting auth module."
-        }
-      ]
     }
   ],
-  'qa-automation': [
-    {
-      id: 'qa-20250612',
-      date: '12/06/2025',
-      isToday: true,
-      team: 'QA Automation',
-      summary: [
-        {
-          speaker: "David Wilson",
-          initial: "D",
-          time: "09:00-09:03",
-          yesterday: "Completed automated test suite for the new API endpoints.",
-          today: "Will work on integration testing for the mobile app.",
-          blockers: "Waiting for test environment setup.",
-          rawContent: "Yesterday completed API test automation. Today mobile integration tests. Blocked on test env."
-        }
-      ]
-    }
-  ],
-  'ui': [
-    {
-      id: 'ui-20250612',
-      date: '12/06/2025',
-      isToday: true,
-      team: 'UI',
-      summary: [
-        {
-          speaker: "Emma Davis",
-          initial: "E",
-          time: "09:00-09:03",
-          yesterday: "Finalized designs for the new dashboard components.",
-          today: "Starting implementation of responsive layouts.",
-          blockers: "No blockers.",
-          rawContent: "Yesterday finished dashboard designs. Today responsive layouts. No blockers."
-        }
-      ]
-    }
-  ],
-  'devops': [
-    {
-      id: 'devops-20250612',
-      date: '12/06/2025',
-      isToday: true,
-      team: 'DevOps',
-      summary: [
-        {
-          speaker: "Frank Miller",
-          initial: "F",
-          time: "09:00-09:03",
-          yesterday: "Optimized CI/CD pipeline and reduced build times by 30%.",
-          today: "Will work on container orchestration improvements.",
-          blockers: "None at the moment.",
-          rawContent: "Yesterday optimized pipelines, 30% faster builds. Today container orchestration. No blockers."
-        }
-      ]
-    }
-  ]
+  'qa-automation': [],
+  'ui': [],
+  'devops': []
 };
+
+// Function 1: Audio to Text Transcript using OpenAI Whisper
+async function transcribeAudio(audioBuffer, filename) {
+  try {
+    console.log('Starting audio transcription...');
+    
+    // Create a temporary file for the audio
+    const tempPath = path.join(__dirname, 'temp_' + filename);
+    fs.writeFileSync(tempPath, audioBuffer);
+    
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tempPath),
+      model: "whisper-1",
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment"]
+    });
+    
+    // Clean up temp file
+    fs.unlinkSync(tempPath);
+    
+    console.log('Transcription completed');
+    return transcription;
+  } catch (error) {
+    console.error('Error in transcription:', error);
+    throw error;
+  }
+}
+
+// Function 2: Speaker Diarization (simplified - using AI to identify speakers)
+async function segmentBySpeaker(transcriptionData) {
+  try {
+    console.log('Starting speaker segmentation...');
+    
+    const segments = transcriptionData.segments || [];
+    const fullText = transcriptionData.text;
+    
+    // Use GPT to identify and segment speakers
+    const prompt = `
+    Please analyze this standup meeting transcript and identify different speakers. 
+    Segment the text by speaker and assign speaker names (like Speaker A, Speaker B, etc.).
+    Return a JSON array with segments containing: speaker, start_time, end_time, text.
+    
+    Transcript: ${fullText}
+    
+    Segments with timestamps:
+    ${segments.map(seg => `${seg.start}s-${seg.end}s: ${seg.text}`).join('\n')}
+    
+    Please return only valid JSON in this format:
+    [{"speaker": "Speaker A", "start_time": "00:00:00", "end_time": "00:00:30", "text": "speaker content"}]
+    `;
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1
+    });
+    
+    const segmentedData = JSON.parse(response.choices[0].message.content);
+    console.log('Speaker segmentation completed');
+    return segmentedData;
+  } catch (error) {
+    console.error('Error in speaker segmentation:', error);
+    throw error;
+  }
+}
+
+// Function 3: Classify and Summarize Standup Content
+async function classifyStandupContent(segmentedData) {
+  try {
+    console.log('Starting content classification...');
+    
+    const summaries = [];
+    
+    for (const segment of segmentedData) {
+      const prompt = `
+      Analyze this standup update and extract:
+      1. Yesterday: What work was completed since last standup
+      2. Today: What work is planned for today
+      3. Blockers: Any impediments or issues (use "None" if no blockers)
+      
+      Provide brief, clear summaries for each category.
+      
+      Speaker content: "${segment.text}"
+      
+      Return only valid JSON in this format:
+      {
+        "yesterday": "summary of yesterday's work",
+        "today": "summary of today's plans", 
+        "blockers": "blockers or None"
+      }
+      `;
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1
+      });
+      
+      const classification = JSON.parse(response.choices[0].message.content);
+      
+      summaries.push({
+        speaker: segment.speaker,
+        initial: segment.speaker.charAt(segment.speaker.length - 1), // Last char as initial
+        time: `${segment.start_time}-${segment.end_time}`,
+        yesterday: classification.yesterday,
+        today: classification.today,
+        blockers: classification.blockers,
+        rawContent: segment.text
+      });
+    }
+    
+    console.log('Content classification completed');
+    return summaries;
+  } catch (error) {
+    console.error('Error in content classification:', error);
+    throw error;
+  }
+}
+
+// Function to process transcript text directly
+async function processTranscriptText(transcriptText) {
+  try {
+    console.log('Processing transcript text...');
+    
+    // Simulate speaker segmentation for text input
+    const mockSegments = [
+      {
+        speaker: "Speaker A",
+        start_time: "00:00:00",
+        end_time: "00:02:00",
+        text: transcriptText.substring(0, Math.floor(transcriptText.length / 2))
+      },
+      {
+        speaker: "Speaker B", 
+        start_time: "00:02:00",
+        end_time: "00:04:00",
+        text: transcriptText.substring(Math.floor(transcriptText.length / 2))
+      }
+    ];
+    
+    const summaries = await classifyStandupContent(mockSegments);
+    return summaries;
+  } catch (error) {
+    console.error('Error processing transcript text:', error);
+    throw error;
+  }
+}
 
 // Get all teams
 app.get('/api/teams', (req, res) => {
@@ -158,39 +243,59 @@ app.get('/api/standups/:standupId', (req, res) => {
   res.status(404).json({ error: 'Standup not found' });
 });
 
-// Process new standup (placeholder for future AI integration)
-app.post('/api/process-standup', upload.single('audio'), (req, res) => {
-  const { team, transcript } = req.body;
-  
-  // Simulate processing time
-  setTimeout(() => {
+// Process new standup with actual AI processing
+app.post('/api/process-standup', upload.single('audio'), async (req, res) => {
+  try {
+    const { team, transcript } = req.body;
+    const audioFile = req.file;
+    
+    console.log(`Processing standup for team: ${team}`);
+    
+    let summaries = [];
+    
+    if (audioFile) {
+      // Process audio file
+      console.log('Processing audio file...');
+      const transcriptionData = await transcribeAudio(audioFile.buffer, audioFile.originalname);
+      const segmentedData = await segmentBySpeaker(transcriptionData);
+      summaries = await classifyStandupContent(segmentedData);
+    } else if (transcript) {
+      // Process text transcript
+      console.log('Processing text transcript...');
+      summaries = await processTranscriptText(transcript);
+    } else {
+      return res.status(400).json({ error: 'No audio file or transcript provided' });
+    }
+    
+    // Create new standup entry
     const newStandupId = `${team}-${Date.now()}`;
     const newStandup = {
       id: newStandupId,
       date: new Date().toLocaleDateString('en-GB'),
       team: team.charAt(0).toUpperCase() + team.slice(1),
-      summary: [
-        {
-          speaker: "Sample Speaker",
-          initial: "S",
-          time: "09:00-09:03",
-          yesterday: "Sample yesterday update",
-          today: "Sample today plan",
-          blockers: "No blockers",
-          rawContent: transcript || "Sample transcript content"
-        }
-      ]
+      summary: summaries
     };
     
+    // Store in memory
     if (!standupData[team]) {
       standupData[team] = [];
     }
     
     standupData[team].unshift(newStandup);
+    
+    console.log('Standup processing completed successfully');
     res.json(newStandup);
-  }, 2000);
+    
+  } catch (error) {
+    console.error('Error processing standup:', error);
+    res.status(500).json({ 
+      error: 'Failed to process standup', 
+      details: error.message 
+    });
+  }
 });
 
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
+  console.log('Make sure to set OPENAI_API_KEY environment variable for full functionality');
 });

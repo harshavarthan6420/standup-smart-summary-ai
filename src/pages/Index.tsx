@@ -15,7 +15,13 @@ const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState("");
 
-  const teams = ["Development", "QA Automation", "UI", "DevOps"];
+  const teams = ["development", "qa-automation", "ui", "devops"];
+  const teamDisplayNames = {
+    "development": "Development",
+    "qa-automation": "QA Automation", 
+    "ui": "UI",
+    "devops": "DevOps"
+  };
 
   const handleFileUpload = (type: "audio" | "transcript") => {
     if (!selectedTeam) {
@@ -35,11 +41,90 @@ const Index = () => {
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
-        simulateProcessing(type, selectedTeam);
+        if (type === "audio") {
+          processAudioFile(file);
+        } else {
+          processTranscriptFile(file);
+        }
       }
     };
     
     input.click();
+  };
+
+  const processAudioFile = async (file: File) => {
+    setIsProcessing(true);
+    
+    try {
+      setProcessingStep("Transcribing audio...");
+      
+      const formData = new FormData();
+      formData.append('audio', file);
+      formData.append('team', selectedTeam);
+      
+      const response = await fetch('http://localhost:3001/api/process-standup', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to process audio file');
+      }
+      
+      const result = await response.json();
+      setIsProcessing(false);
+      navigate(`/summary/${result.id}`);
+      
+    } catch (error) {
+      console.error('Error processing audio:', error);
+      toast.error("Failed to process audio file. Please check if the backend server is running.");
+      setIsProcessing(false);
+    }
+  };
+
+  const processTranscriptFile = async (file: File) => {
+    setIsProcessing(true);
+    
+    try {
+      const text = await file.text();
+      await processTranscriptText(text);
+    } catch (error) {
+      console.error('Error reading transcript file:', error);
+      toast.error("Failed to read transcript file");
+      setIsProcessing(false);
+    }
+  };
+
+  const processTranscriptText = async (text: string) => {
+    setIsProcessing(true);
+    
+    try {
+      setProcessingStep("Segmenting speakers...");
+      
+      const response = await fetch('http://localhost:3001/api/process-standup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          team: selectedTeam,
+          transcript: text
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to process transcript');
+      }
+      
+      const result = await response.json();
+      setIsProcessing(false);
+      navigate(`/summary/${result.id}`);
+      
+    } catch (error) {
+      console.error('Error processing transcript:', error);
+      toast.error("Failed to process transcript. Please check if the backend server is running and OpenAI API key is configured.");
+      setIsProcessing(false);
+    }
   };
 
   const handlePasteTranscript = () => {
@@ -52,35 +137,7 @@ const Index = () => {
       return;
     }
     
-    simulateProcessing("transcript", selectedTeam);
-  };
-
-  const simulateProcessing = (type: string, team: string) => {
-    setIsProcessing(true);
-    
-    // Step 1: Transcribing (only for audio)
-    if (type === "audio") {
-      setProcessingStep("Transcribing audio...");
-      setTimeout(() => {
-        setProcessingStep("Segmenting speakers...");
-        setTimeout(() => {
-          setProcessingStep("Summarizing updates...");
-          setTimeout(() => {
-            setIsProcessing(false);
-            navigate("/summary", { state: { team } });
-          }, 2000);
-        }, 2000);
-      }, 2000);
-    } else {
-      setProcessingStep("Segmenting speakers...");
-      setTimeout(() => {
-        setProcessingStep("Summarizing updates...");
-        setTimeout(() => {
-          setIsProcessing(false);
-          navigate("/summary", { state: { team } });
-        }, 2000);
-      }, 2000);
-    }
+    processTranscriptText(transcriptText);
   };
 
   const handleSampleStandup = () => {
@@ -89,7 +146,8 @@ const Index = () => {
       return;
     }
     
-    simulateProcessing("sample", selectedTeam);
+    // Navigate to existing sample data
+    navigate("/summary/dev-20250612");
   };
 
   return (
@@ -145,7 +203,7 @@ const Index = () => {
                 <SelectContent>
                   {teams.map((team) => (
                     <SelectItem key={team} value={team}>
-                      {team}
+                      {teamDisplayNames[team]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -245,6 +303,7 @@ const Index = () => {
             <CardContent className="p-6 text-center">
               <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-blue-800 font-medium">{processingStep}</p>
+              <p className="text-sm text-blue-600 mt-2">This may take a few minutes for audio files...</p>
             </CardContent>
           </Card>
         )}
