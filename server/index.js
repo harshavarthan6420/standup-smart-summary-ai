@@ -4,6 +4,7 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 const app = express();
 const port = 3001;
 
@@ -61,15 +62,42 @@ let standupData = {
   'devops': []
 };
 
-// Simulated open source transcription function
+// Ollama API configuration
+const OLLAMA_BASE_URL = 'http://localhost:11434';
+
+// Function to call Ollama API
+async function callOllama(model, prompt, system = null) {
+  try {
+    const payload = {
+      model: model,
+      prompt: prompt,
+      stream: false
+    };
+    
+    if (system) {
+      payload.system = system;
+    }
+
+    const response = await axios.post(`${OLLAMA_BASE_URL}/api/generate`, payload);
+    return response.data.response;
+  } catch (error) {
+    console.error('Error calling Ollama:', error.message);
+    throw new Error(`Ollama API error: ${error.message}`);
+  }
+}
+
+// Function to transcribe audio using Whisper (would require whisper.cpp or similar)
 async function transcribeAudio(audioBuffer, filename) {
   try {
-    console.log('Starting audio transcription with open source model...');
+    console.log('Starting audio transcription...');
     
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // For now, we'll use a mock response since implementing whisper.cpp requires additional setup
+    // In a real implementation, you would:
+    // 1. Save the audio buffer to a temporary file
+    // 2. Call whisper.cpp binary or use a Node.js whisper binding
+    // 3. Parse the output for timestamps and text
     
-    // Mock transcription result that would come from Whisper.cpp or similar
+    // Mock transcription with realistic structure
     const mockTranscription = {
       text: "Yesterday I worked on fixing the authentication bug and completed the user profile updates. Today I'm going to work on the new dashboard feature and help with code reviews. I don't have any blockers right now. Speaker B: I finished the database migrations yesterday and deployed to staging. Today I'll be working on the frontend components. I'm blocked waiting for admin access to the production environment.",
       segments: [
@@ -81,12 +109,12 @@ async function transcribeAudio(audioBuffer, filename) {
         {
           start: 15.5,
           end: 30.0,
-          text: "Speaker B: I finished the database migrations yesterday and deployed to staging. Today I'll be working on the frontend components. I'm blocked waiting for admin access to the production environment."
+          text: "I finished the database migrations yesterday and deployed to staging. Today I'll be working on the frontend components. I'm blocked waiting for admin access to the production environment."
         }
       ]
     };
     
-    console.log('Transcription completed');
+    console.log('Audio transcription completed');
     return mockTranscription;
   } catch (error) {
     console.error('Error in transcription:', error);
@@ -94,78 +122,109 @@ async function transcribeAudio(audioBuffer, filename) {
   }
 }
 
-// Simulated speaker diarization function
+// Function to segment by speaker using Ollama
 async function segmentBySpeaker(transcriptionData) {
   try {
-    console.log('Starting speaker segmentation...');
+    console.log('Starting speaker segmentation with Ollama...');
     
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const segments = transcriptionData.segments || [];
     const fullText = transcriptionData.text;
     
-    // Mock speaker segmentation that would come from pyannote or similar
-    const segmentedData = [
-      {
-        speaker: "Speaker A",
-        start_time: "00:00:00",
-        end_time: "00:00:15",
-        text: "Yesterday I worked on fixing the authentication bug and completed the user profile updates. Today I'm going to work on the new dashboard feature and help with code reviews. I don't have any blockers right now."
-      },
-      {
-        speaker: "Speaker B",
-        start_time: "00:00:15",
-        end_time: "00:00:30",
-        text: "I finished the database migrations yesterday and deployed to staging. Today I'll be working on the frontend components. I'm blocked waiting for admin access to the production environment."
-      }
-    ];
+    const systemPrompt = `You are an expert at speaker diarization. Your task is to identify different speakers in a transcript and segment the text by speaker. Return a JSON array where each object has: speaker (like "Speaker A", "Speaker B"), start_time, end_time, and text.`;
     
-    console.log('Speaker segmentation completed');
-    return segmentedData;
+    const prompt = `Please segment this transcript by speaker and return as JSON:
+
+"${fullText}"
+
+Return only valid JSON array format with no additional text.`;
+
+    const response = await callOllama('llama3.2', prompt, systemPrompt);
+    
+    try {
+      // Try to parse the JSON response
+      const segmentedData = JSON.parse(response);
+      console.log('Speaker segmentation completed');
+      return segmentedData;
+    } catch (parseError) {
+      console.log('JSON parsing failed, using fallback segmentation');
+      // Fallback to simple segmentation
+      const segments = fullText.split(/(?:Speaker [A-Z]:|[.!?]\s+)/).filter(text => text.trim());
+      return segments.map((text, index) => ({
+        speaker: `Speaker ${String.fromCharCode(65 + index)}`,
+        start_time: `00:0${index}:00`,
+        end_time: `00:0${index + 1}:00`,
+        text: text.trim()
+      }));
+    }
   } catch (error) {
     console.error('Error in speaker segmentation:', error);
-    throw error;
+    // Fallback segmentation
+    const segments = transcriptionData.text.split('.').filter(text => text.trim());
+    return segments.map((text, index) => ({
+      speaker: `Speaker ${String.fromCharCode(65 + index)}`,
+      start_time: `00:0${index}:00`,
+      end_time: `00:0${index + 1}:00`,
+      text: text.trim()
+    }));
   }
 }
 
-// Simulated content classification function
+// Function to classify standup content using Ollama
 async function classifyStandupContent(segmentedData) {
   try {
-    console.log('Starting content classification...');
-    
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('Starting content classification with Ollama...');
     
     const summaries = [];
     
     for (const segment of segmentedData) {
-      // Mock classification that would come from a local LLM or BERT model
-      let classification;
+      const systemPrompt = `You are an expert at analyzing standup meeting content. Extract and categorize what team members said into three categories: Yesterday (what they did), Today (what they're working on), and Blockers (what's blocking them or "None" if no blockers).`;
       
-      if (segment.speaker === "Speaker A") {
-        classification = {
-          yesterday: "Fixed authentication bug and completed user profile updates",
-          today: "Work on new dashboard feature and help with code reviews",
-          blockers: "None"
-        };
-      } else {
-        classification = {
-          yesterday: "Finished database migrations and deployed to staging",
-          today: "Develop frontend components",
-          blockers: "Waiting for admin access to production environment"
-        };
+      const prompt = `Analyze this standup speech and extract Yesterday, Today, and Blockers. Return as JSON with keys: yesterday, today, blockers.
+
+Text: "${segment.text}"
+
+Return only valid JSON with no additional text.`;
+
+      try {
+        const response = await callOllama('llama3.2', prompt, systemPrompt);
+        const classification = JSON.parse(response);
+        
+        summaries.push({
+          speaker: segment.speaker,
+          initial: segment.speaker.charAt(segment.speaker.length - 1),
+          time: `${segment.start_time}-${segment.end_time}`,
+          yesterday: classification.yesterday || "No updates",
+          today: classification.today || "No plans mentioned",
+          blockers: classification.blockers || "None",
+          rawContent: segment.text
+        });
+      } catch (parseError) {
+        console.log(`Classification failed for ${segment.speaker}, using fallback`);
+        // Fallback classification
+        const text = segment.text.toLowerCase();
+        let yesterday = "No updates";
+        let today = "No plans mentioned";
+        let blockers = "None";
+        
+        if (text.includes('yesterday') || text.includes('last')) {
+          yesterday = "Worked on project tasks";
+        }
+        if (text.includes('today') || text.includes('working')) {
+          today = "Continuing current work";
+        }
+        if (text.includes('block') || text.includes('stuck') || text.includes('waiting')) {
+          blockers = "Has some blockers";
+        }
+        
+        summaries.push({
+          speaker: segment.speaker,
+          initial: segment.speaker.charAt(segment.speaker.length - 1),
+          time: `${segment.start_time}-${segment.end_time}`,
+          yesterday,
+          today,
+          blockers,
+          rawContent: segment.text
+        });
       }
-      
-      summaries.push({
-        speaker: segment.speaker,
-        initial: segment.speaker.charAt(segment.speaker.length - 1),
-        time: `${segment.start_time}-${segment.end_time}`,
-        yesterday: classification.yesterday,
-        today: classification.today,
-        blockers: classification.blockers,
-        rawContent: segment.text
-      });
     }
     
     console.log('Content classification completed');
@@ -181,23 +240,22 @@ async function processTranscriptText(transcriptText) {
   try {
     console.log('Processing transcript text...');
     
-    // Simulate speaker segmentation for text input
-    const mockSegments = [
-      {
-        speaker: "Speaker A",
-        start_time: "00:00:00",
-        end_time: "00:02:00",
-        text: transcriptText.substring(0, Math.floor(transcriptText.length / 2))
-      },
-      {
-        speaker: "Speaker B", 
-        start_time: "00:02:00",
-        end_time: "00:04:00",
-        text: transcriptText.substring(Math.floor(transcriptText.length / 2))
-      }
-    ];
+    // Clean up RTF formatting if present
+    const cleanText = transcriptText
+      .replace(/\\[a-z]+\d*\s?/g, '') // Remove RTF control words
+      .replace(/[{}]/g, '') // Remove braces
+      .replace(/\\\\/g, '') // Remove backslashes
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
     
-    const summaries = await classifyStandupContent(mockSegments);
+    // Create mock transcription data
+    const transcriptionData = {
+      text: cleanText,
+      segments: []
+    };
+    
+    const segmentedData = await segmentBySpeaker(transcriptionData);
+    const summaries = await classifyStandupContent(segmentedData);
     return summaries;
   } catch (error) {
     console.error('Error processing transcript text:', error);
@@ -249,6 +307,16 @@ app.get('/api/standups/:standupId', (req, res) => {
   } catch (error) {
     console.error('Error fetching standup:', error);
     res.status(500).json({ error: 'Failed to fetch standup details' });
+  }
+});
+
+// Health check for Ollama
+app.get('/api/health/ollama', async (req, res) => {
+  try {
+    const response = await axios.get(`${OLLAMA_BASE_URL}/api/tags`);
+    res.json({ status: 'OK', message: 'Ollama is running', models: response.data.models });
+  } catch (error) {
+    res.status(500).json({ status: 'ERROR', message: 'Ollama is not running or not accessible' });
   }
 });
 
@@ -315,5 +383,6 @@ app.get('/api/health', (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
-  console.log('Using open source models for processing');
+  console.log('Using Ollama for open source AI processing');
+  console.log('Make sure Ollama is running on http://localhost:11434');
 });
